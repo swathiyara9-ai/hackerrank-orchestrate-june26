@@ -15,7 +15,7 @@ USER_HISTORY_CSV = str(ROOT / "dataset/user_history.csv")
 EVIDENCE_REQ_CSV = str(ROOT / "dataset/evidence_requirements.csv")
 OUTPUT_CSV = str(ROOT / "output.csv")
 
-SLEEP_BETWEEN_CALLS = 2
+SLEEP_BETWEEN_CALLS = 0
 
 ALLOWED_ISSUE_TYPES = [
     "dent","scratch","crack","glass_shatter","broken_part",

@@ -5,6 +5,7 @@ import os
 from heuristic_analyzer import analyze_claim_heuristic as analyze_claim
 from evidence_checker import load_evidence_requirements, check_evidence_standard
 from risk_scorer import load_user_history, get_risk_flags
+from injection_detector import detect_injection
 from utils import parse_image_paths, validate_value, validate_flags, merge_flags
 from config import (
     SLEEP_BETWEEN_CALLS, OUTPUT_COLUMNS,
@@ -51,9 +52,67 @@ def process_claim(row, requirements_df, history_df, base_dir):
         claim_object, issue_type, image_count, images, requirements_df
     )
 
+    # --- Prompt injection detection ---
+    is_injection, injection_matches = detect_injection(user_claim)
+    injection_flag = "text_instruction_present" if is_injection else ""
+
+    # --- Risk flags ---
     image_flags = validate_flags(str(vision.get("image_quality_issues","none")), ALLOWED_RISK_FLAGS)
     history_flags = get_risk_flags(user_id, history_df)
-    risk_flags = validate_flags(merge_flags(image_flags, history_flags), ALLOWED_RISK_FLAGS)
+    combined_flags = merge_flags(image_flags, history_flags)
+    if injection_flag:
+        combined_flags = merge_flags(combined_flags, injection_flag)
+    risk_flags = validate_flags(combined_flags, ALLOWED_RISK_FLAGS)
+
+    # =============================================
+    # POST-PROCESSING: Logical consistency enforcement
+    # =============================================
+
+    # FIX 1: evidence_standard_met=False → MUST be not_enough_information
+    if not evidence_met and claim_status == "supported":
+        claim_status = "not_enough_information"
+        justification = (
+            f"Evidence standard not met: {evidence_reason}. "
+            "Cannot confirm support without sufficient visual evidence."
+        )
+        supporting_ids = "none"
+
+    # FIX 2: issue_type=unknown AND severity=unknown → not_enough_information
+    # If we can't determine what damage is claimed, we can't confirm it's supported
+    if issue_type == "unknown" and severity == "unknown" and claim_status == "supported":
+        claim_status = "not_enough_information"
+        justification = (
+            "Cannot determine the specific damage type or severity from the "
+            "claim description. Insufficient information to confirm support."
+        )
+        supporting_ids = "none"
+
+    # FIX 3: Prompt injection → downgrade to not_enough_information if no clear damage signal
+    if is_injection:
+        if issue_type == "unknown" or severity == "unknown":
+            claim_status = "not_enough_information"
+            justification = (
+                "Conversation contains instruction-like text that may attempt to "
+                "influence the review decision. Manual review is required."
+            )
+            supporting_ids = "none"
+        # Always add manual_review_required for injection cases
+        if "manual_review_required" not in risk_flags:
+            risk_flags = merge_flags(risk_flags, "manual_review_required")
+            risk_flags = validate_flags(risk_flags, ALLOWED_RISK_FLAGS)
+
+    # FIX 4: claim_status != supported → supporting_image_ids should be "none"
+    if claim_status != "supported":
+        supporting_ids = "none"
+
+    # FIX 5: Improve justification with image IDs when supported
+    if claim_status == "supported" and supporting_ids != "none":
+        img_ids_list = supporting_ids.replace(";", ", ")
+        justification = (
+            f"Claimed {issue_type} on {object_part} is consistent with the "
+            f"submitted evidence ({img_ids_list}). "
+            f"Severity assessed as {severity}."
+        )
 
     return {
         "user_id": user_id,

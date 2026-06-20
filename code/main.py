@@ -19,10 +19,7 @@ from config import (
 
 def main():
     if not GEMINI_API_KEY:
-        print("ERROR: GEMINI_API_KEY not set.")
-        print("Create .env in repo root: GEMINI_API_KEY=your_key")
-        print("Get free key at: aistudio.google.com")
-        sys.exit(1)
+        print("WARNING: GEMINI_API_KEY not set. Running in pure heuristic mode.")
 
     print("=== Multi-Modal Evidence Review Pipeline ===")
     print(f"Input:  {CLAIMS_CSV}")
@@ -37,7 +34,7 @@ def main():
         requirements_df=requirements_df,
         history_df=history_df,
         base_dir=DATASET_DIR,
-        resume=True
+        resume=False
     )
 
 if __name__ == "__main__":

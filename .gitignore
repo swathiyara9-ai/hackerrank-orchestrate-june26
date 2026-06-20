@@ -1,0 +1,5 @@
+.env
+code/__pycache__/
+*.log
+progress.json
+code/evaluation/sample_output.csv
